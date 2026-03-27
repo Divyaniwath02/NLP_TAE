@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SocialParse — Feed Analysis System</title>
+
+  <!-- Google Fonts: Syne (display) + DM Sans (body) -->
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+
+  <!-- Chart.js for dashboard charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Lucide icons — pinned version for reliability -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.378.0/dist/umd/lucide.min.js"></script>
+
+  <style>
+    /* ============================================================
+       CSS CUSTOM PROPERTIES (Design Tokens)
+       ============================================================ */
+    :root {
+      --bg-base:       #080b12;
+      --bg-card:       #0e1320;
+      --bg-card-2:     #141926;
+      --border:        rgba(255,255,255,0.07);
+      --accent-cyan:   #00e5ff;
+      --accent-violet: #7c4dff;
+      --accent-pink:   #ff4081;
+      --accent-green:  #00e676;
+      --accent-amber:  #ffab40;
+      --text-primary:  #f0f4ff;
+      --text-muted:    #7b8caa;
+      --radius:        14px;
+      --radius-sm:     8px;
+      --transition:    0.3s cubic-bezier(0.4,0,0.2,1);
+      --glow-cyan:     0 0 24px rgba(0,229,255,0.3);
+      --glow-violet:   0 0 24px rgba(124,77,255,0.3);
+    }
+
+    /* ============================================================
+       RESET & BASE
+       ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; font-size: 16px; }
+
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: 'DM Sans', sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Noise texture overlay for depth */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      opacity: 0.5;
+    }
+
+    /* ============================================================
+       TYPOGRAPHY HELPERS
+       ============================================================ */
+    h1, h2, h3, h4 { font-family: 'Syne', sans-serif; line-height: 1.15; }
+
+    .grad-text {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .section-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent-cyan);
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 12px;
+    }
+    .section-label::before {
+      content: '';
+      width: 28px; height: 2px;
+      background: var(--accent-cyan);
+      border-radius: 2px;
+    }
+
+    /* ============================================================
+       LAYOUT UTILITIES
+       ============================================================ */
+    .container { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+    section { position: relative; z-index: 1; padding: 100px 0; }
+
+    /* ============================================================
+       NAVIGATION
+       ============================================================ */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      backdrop-filter: blur(20px);
+      background: rgba(8,11,18,0.75);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 0;
+      transition: var(--transition);
+    }
+    .nav-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      max-width: 1160px; margin: 0 auto; padding: 0 24px;
+    }
+    .nav-logo {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.25rem; font-weight: 800;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-violet));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      text-decoration: none;
+    }
+    .nav-links { display: flex; gap: 32px; list-style: none; }
+    .nav-links a {
+      color: var(--text-muted); text-decoration: none;
+      font-size: 0.9rem; font-weight: 500;
+      transition: color var(--transition);
+    }
+    .nav-links a:hover { color: var(--text-primary); }
+
+    /* Mobile hamburger */
+    .hamburger {
+      display: none; flex-direction: column; gap: 5px; cursor: pointer;
+      background: none; border: none; padding: 4px;
+    }
+    .hamburger span {
+      width: 22px; height: 2px; background: var(--text-primary); border-radius: 2px;
+      transition: var(--transition);
+    }
+
+    /* ============================================================
+       HERO SECTION
+       ============================================================ */
+    #home {
+      min-height: 100vh;
+      display: flex; align-items: center;
+      padding-top: 80px;
+      overflow: hidden;
+    }
+
+    /* Animated gradient blobs */
+    .hero-blobs {
+      position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+    }
+    .blob {
+      position: absolute; border-radius: 50%; filter: blur(100px); opacity: 0.18;
+      animation: floatBlob 10s ease-in-out infinite;
+    }
+    .blob-1 { width: 500px; height: 500px; background: var(--accent-violet); top: -100px; right: -100px; animation-delay: 0s; }
+    .blob-2 { width: 400px; height: 400px; background: var(--accent-cyan); bottom: -100px; left: -80px; animation-delay: 3s; }
+    .blob-3 { width: 300px; height: 300px; background: var(--accent-pink); top: 40%; left: 40%; animation-delay: 6s; }
+
+    @keyframes floatBlob {
+      0%, 100% { transform: translate(0,0) scale(1); }
+      50% { transform: translate(30px, -30px) scale(1.08); }
+    }
+
+    .hero-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 64px;
+      align-items: center;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.2);
+      border-radius: 100px; padding: 6px 16px;
+      font-size: 0.8rem; color: var(--accent-cyan); font-weight: 500;
+      margin-bottom: 28px;
+      animation: fadeSlideUp 0.6s ease both;
+    }
+    .hero-badge .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent-cyan);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.7); }
+    }
+    .hero-title {
+      font-size: clamp(2.4rem, 5vw, 4rem);
+      font-weight: 800; margin-bottom: 24px;
+      animation: fadeSlideUp 0.6s 0.1s ease both;
+    }
+    .hero-desc {
+      color: var(--text-muted); font-size: 1.05rem;
+      max-width: 480px; margin-bottom: 40px; font-weight: 400;
+      animation: fadeSlideUp 0.6s 0.2s ease both;
+    }
+    .hero-ctas {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      animation: fadeSlideUp 0.6s 0.3s ease both;
+    }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+      color: #fff; font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem; font-weight: 600;
+      padding: 13px 28px; border-radius: 100px;
+      border: none; cursor: pointer; text-decoration: none;
+      transition: var(--transition);
+      box-shadow: 0 4px 20px rgba(124,77,255,0.35);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(124,77,255,0.5); }
+
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: transparent;
+      color: var(--text-primary); font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem; font-weight: 500;
+      padding: 13px 28px; border-radius: 100px;
+      border: 1px solid var(--border); cursor: pointer; text-decoration: none;
+      transition: var(--transition);
+    }
+    .btn-secondary:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+
+    /* Hero illustration — SVG "feed" mockup */
+    .hero-visual {
+      animation: fadeSlideUp 0.7s 0.15s ease both;
+    }
+    .feed-mockup {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    .feed-topbar {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 20px;
+    }
+    .feed-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .feed-dot.r { background: #ff5f57; }
+    .feed-dot.y { background: #febc2e; }
+    .feed-dot.g { background: #28c840; }
+    .feed-cards { display: flex; flex-direction: column; gap: 14px; }
+    .feed-card {
+      background: var(--bg-card-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      display: flex; gap: 12px; align-items: flex-start;
+      transition: var(--transition);
+    }
+    .feed-card:hover { border-color: var(--accent-cyan); transform: translateX(4px); }
+    .feed-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      flex-shrink: 0; display: flex; align-items: center;
+      justify-content: center; font-size: 0.8rem; font-weight: 700;
+    }
+    .feed-avatar.a { background: linear-gradient(135deg,#7c4dff,#00e5ff); }
+    .feed-avatar.b { background: linear-gradient(135deg,#ff4081,#ffab40); }
+    .feed-avatar.c { background: linear-gradient(135deg,#00e676,#00e5ff); }
+    .feed-content { flex: 1; }
+    .feed-user { font-size: 0.78rem; font-weight: 600; margin-bottom: 4px; }
+    .feed-text { font-size: 0.78rem; color: var(--text-muted); line-height: 1.5; }
+    .feed-tag { color: var(--accent-cyan); font-weight: 600; }
+    .sentiment-badge {
+      font-size: 0.65rem; padding: 3px 8px; border-radius: 100px;
+      font-weight: 600; margin-top: 6px; display: inline-block;
+    }
+    .pos { background: rgba(0,230,118,0.15); color: var(--accent-green); }
+    .neg { background: rgba(255,64,129,0.15); color: var(--accent-pink); }
+    .neu { background: rgba(255,171,64,0.15); color: var(--accent-amber); }
+
+    /* Hero stats strip */
+    .hero-stats {
+      display: grid; grid-template-columns: repeat(3,1fr); gap: 16px;
+      margin-top: 48px;
+      animation: fadeSlideUp 0.6s 0.4s ease both;
+    }
+    .stat-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px 20px;
+    }
+    .stat-value { font-family: 'Syne', sans-serif; font-size: 1.5rem; font-weight: 800; }
+    .stat-label { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+
+    /* ============================================================
+       ABOUT SECTION
+       ============================================================ */
+    #about { background: linear-gradient(180deg, var(--bg-base), var(--bg-card) 50%, var(--bg-base)); }
+
+    .about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
+    .about-text h2 { font-size: clamp(1.8rem, 3.5vw, 2.8rem); margin-bottom: 20px; }
+    .about-text p { color: var(--text-muted); margin-bottom: 16px; font-size: 0.97rem; }
+
+    .use-cases { display: flex; flex-direction: column; gap: 14px; margin-top: 28px; }
+    .use-case-item {
+      display: flex; gap: 14px; align-items: flex-start;
+      background: var(--bg-card-2); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 16px;
+      transition: var(--transition);
+    }
+    .use-case-item:hover { border-color: var(--accent-violet); transform: translateX(6px); }
+    .use-icon {
+      width: 40px; height: 40px; border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; font-size: 1.1rem;
+    }
+    .use-icon.v { background: rgba(124,77,255,0.15); }
+    .use-icon.c { background: rgba(0,229,255,0.15); }
+    .use-icon.p { background: rgba(0,230,118,0.15); }
+    .use-icon.a { background: rgba(255,171,64,0.15); }
+    .use-case-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 2px; }
+    .use-case-desc { font-size: 0.8rem; color: var(--text-muted); }
+
+    /* Pipeline diagram */
+    .pipeline {
+      display: flex; flex-direction: column; gap: 0;
+    }
+    .pipe-step {
+      display: flex; align-items: flex-start; gap: 16px;
+    }
+    .pipe-left { display: flex; flex-direction: column; align-items: center; }
+    .pipe-num {
+      width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--accent-cyan);
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Syne', sans-serif; font-size: 0.85rem; font-weight: 700;
+      color: var(--accent-cyan); flex-shrink: 0; background: var(--bg-card);
+    }
+    .pipe-line {
+      width: 2px; flex: 1; min-height: 28px;
+      background: linear-gradient(to bottom, var(--accent-cyan), transparent);
+      margin: 4px 0;
+    }
+    .pipe-body { padding-bottom: 28px; }
+    .pipe-title { font-weight: 600; margin-bottom: 4px; }
+    .pipe-desc { font-size: 0.82rem; color: var(--text-muted); }
+
+    /* ============================================================
+       DEMO SECTION
+       ============================================================ */
+    #demo { background: var(--bg-base); }
+
+    .demo-container {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start;
+    }
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+    }
+    .panel-title {
+      font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700;
+      margin-bottom: 20px; display: flex; align-items: center; gap: 10px;
+    }
+    .panel-icon {
+      width: 32px; height: 32px; border-radius: var(--radius-sm);
+      background: rgba(0,229,255,0.12);
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .input-area {
+      width: 100%; background: var(--bg-card-2);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      color: var(--text-primary); font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem; padding: 14px 16px;
+      resize: vertical; min-height: 150px; outline: none;
+      transition: border-color var(--transition);
+    }
+    .input-area:focus { border-color: var(--accent-cyan); }
+    .input-area::placeholder { color: var(--text-muted); }
+
+    .analyze-btn {
+      width: 100%; margin-top: 14px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+      border: none; border-radius: var(--radius-sm);
+      color: #fff; font-family: 'Syne', sans-serif;
+      font-size: 1rem; font-weight: 700;
+      padding: 14px; cursor: pointer;
+      transition: var(--transition);
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      box-shadow: 0 4px 20px rgba(124,77,255,0.3);
+    }
+    .analyze-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(124,77,255,0.5); }
+    .analyze-btn:active { transform: translateY(0); }
+
+    /* Output panel */
+    .result-empty {
+      text-align: center; padding: 40px 20px; color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    .result-empty svg { opacity: 0.3; margin-bottom: 12px; }
+
+    .result-section { margin-bottom: 22px; animation: fadeSlideUp 0.4s ease both; }
+    .result-heading {
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;
+    }
+
+    /* Sentiment meter */
+    .sentiment-display {
+      display: flex; align-items: center; gap: 14px;
+      background: var(--bg-card-2); border-radius: var(--radius-sm);
+      padding: 16px;
+    }
+    .sentiment-icon { font-size: 2rem; }
+    .sentiment-label { font-family: 'Syne', sans-serif; font-size: 1.3rem; font-weight: 800; }
+    .sentiment-score { font-size: 0.8rem; color: var(--text-muted); }
+    .sentiment-bar-wrap {
+      margin-top: 10px; background: var(--bg-card-2);
+      border-radius: 100px; height: 8px; overflow: hidden;
+    }
+    .sentiment-bar {
+      height: 100%; border-radius: 100px;
+      transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    /* Hashtags */
+    .tags-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag-chip {
+      background: rgba(0,229,255,0.1); border: 1px solid rgba(0,229,255,0.25);
+      color: var(--accent-cyan); border-radius: 100px;
+      font-size: 0.8rem; font-weight: 600; padding: 5px 13px;
+      animation: popIn 0.3s ease both;
+    }
+    @keyframes popIn {
+      0% { transform: scale(0.7); opacity: 0; }
+      70% { transform: scale(1.05); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* Keywords */
+    .keywords-text {
+      background: var(--bg-card-2); border-radius: var(--radius-sm);
+      padding: 14px 16px; font-size: 0.88rem; line-height: 1.8;
+    }
+    mark.kw {
+      background: rgba(124,77,255,0.25); color: var(--accent-violet);
+      border-radius: 3px; padding: 1px 4px; font-weight: 600;
+    }
+    mark.pos-kw {
+      background: rgba(0,230,118,0.15); color: var(--accent-green);
+      border-radius: 3px; padding: 1px 4px; font-weight: 600;
+    }
+    mark.neg-kw {
+      background: rgba(255,64,129,0.15); color: var(--accent-pink);
+      border-radius: 3px; padding: 1px 4px; font-weight: 600;
+    }
+
+    /* ============================================================
+       DASHBOARD SECTION
+       ============================================================ */
+    #dashboard { background: linear-gradient(180deg, var(--bg-base), var(--bg-card) 50%, var(--bg-base)); }
+
+    .dash-header { text-align: center; margin-bottom: 56px; }
+    .dash-header h2 { font-size: clamp(1.8rem, 3.5vw, 2.8rem); margin-bottom: 12px; }
+    .dash-header p { color: var(--text-muted); }
+
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .charts-grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; margin-top: 24px; }
+    .chart-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+    }
+    .chart-title {
+      font-family: 'Syne', sans-serif; font-size: 0.95rem; font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .chart-sub { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 20px; }
+
+    /* Metric cards */
+    .metric-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .metric-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+      transition: var(--transition);
+    }
+    .metric-card:hover { border-color: var(--accent-violet); transform: translateY(-3px); }
+    .metric-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .metric-icon {
+      width: 36px; height: 36px; border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .metric-change { font-size: 0.75rem; font-weight: 600; }
+    .metric-change.up { color: var(--accent-green); }
+    .metric-change.down { color: var(--accent-pink); }
+    .metric-val { font-family: 'Syne', sans-serif; font-size: 1.8rem; font-weight: 800; }
+    .metric-name { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+
+    /* ============================================================
+       FOOTER
+       ============================================================ */
+    footer {
+      background: var(--bg-card);
+      border-top: 1px solid var(--border);
+      padding: 60px 0 32px; position: relative; z-index: 1;
+    }
+    .footer-grid {
+      display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 48px; margin-bottom: 48px;
+    }
+    .footer-brand h3 {
+      font-family: 'Syne', sans-serif; font-size: 1.5rem; font-weight: 800;
+      background: linear-gradient(90deg,var(--accent-cyan),var(--accent-violet));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      margin-bottom: 12px;
+    }
+    .footer-brand p { color: var(--text-muted); font-size: 0.88rem; max-width: 280px; line-height: 1.7; }
+
+    .footer-col h4 {
+      font-family: 'Syne', sans-serif; font-size: 0.9rem; font-weight: 700;
+      margin-bottom: 16px; color: var(--text-primary);
+    }
+    .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .footer-col ul li { font-size: 0.85rem; color: var(--text-muted); }
+
+    .footer-divider { border: none; border-top: 1px solid var(--border); margin-bottom: 28px; }
+    .footer-bottom {
+      display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;
+    }
+    .footer-bottom p { font-size: 0.82rem; color: var(--text-muted); }
+    .footer-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+    .footer-tag {
+      font-size: 0.72rem; padding: 4px 12px; border-radius: 100px;
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+
+    /* ============================================================
+       ANIMATIONS
+       ============================================================ */
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Intersection-observer driven reveal */
+    .reveal {
+      opacity: 0; transform: translateY(32px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    /* Stagger children */
+    .stagger > * { opacity: 0; transform: translateY(20px); transition: opacity 0.5s ease, transform 0.5s ease; }
+    .stagger.visible > *:nth-child(1) { opacity:1; transform:none; transition-delay:0s; }
+    .stagger.visible > *:nth-child(2) { opacity:1; transform:none; transition-delay:0.1s; }
+    .stagger.visible > *:nth-child(3) { opacity:1; transform:none; transition-delay:0.2s; }
+    .stagger.visible > *:nth-child(4) { opacity:1; transform:none; transition-delay:0.3s; }
+
+    /* Spinning loader on button */
+    .spinner {
+      width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ============================================================
+       RESPONSIVE
+       ============================================================ */
+    @media (max-width: 900px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 48px; }
+      .hero-visual { order: -1; }
+      .about-grid { grid-template-columns: 1fr; gap: 40px; }
+      .demo-container { grid-template-columns: 1fr; }
+      .charts-grid { grid-template-columns: 1fr; }
+      .charts-grid-3 { grid-template-columns: 1fr; }
+      .metric-cards { grid-template-columns: 1fr 1fr; }
+      .footer-grid { grid-template-columns: 1fr; gap: 32px; }
+      .nav-links { display: none; flex-direction: column; position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 16px 24px 24px; gap: 16px; }
+      .nav-links.open { display: flex; }
+      .hamburger { display: flex; }
+    }
+    @media (max-width: 560px) {
+      .metric-cards { grid-template-columns: 1fr 1fr; }
+      .hero-stats { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ============================================================
+     NAVIGATION
+     ============================================================ -->
+<nav id="navbar">
+  <div class="nav-inner">
+    <a href="#home" class="nav-logo">SocialParse</a>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#home">Home</a></li>
+      <li><a href="#about">About</a></li>
+      <li><a href="#demo">Demo</a></li>
+      <li><a href="#dashboard">Dashboard</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+    <button class="hamburger" id="hamburger" aria-label="Toggle menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+
+<!-- ============================================================
+     HERO SECTION
+     ============================================================ -->
+<section id="home">
+  <!-- Animated background blobs -->
+  <div class="hero-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <div class="container">
+    <div class="hero-grid">
+
+      <!-- Left: Text content -->
+      <div>
+        <div class="hero-badge">
+          <span class="dot"></span>
+          College Project · Computer Science
+        </div>
+
+        <h1 class="hero-title">
+          Parsing of <span class="grad-text">Social Media</span> Feed System
+        </h1>
+
+        <p class="hero-desc">
+          An intelligent system that ingests, parses, and analyzes social media posts in real-time — extracting sentiment, hashtags, and key insights using pure JavaScript logic.
+        </p>
+
+        <div class="hero-ctas">
+          <a href="#demo" class="btn-primary">
+            <i data-lucide="zap" width="16" height="16"></i>
+            Try the Demo
+          </a>
+          <a href="#about" class="btn-secondary">
+            <i data-lucide="book-open" width="16" height="16"></i>
+            Learn More
+          </a>
+        </div>
+
+        <div class="hero-stats stagger">
+          <div class="stat-item">
+            <div class="stat-value grad-text">3+</div>
+            <div class="stat-label">Analysis Dimensions</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value grad-text">50+</div>
+            <div class="stat-label">Sentiment Keywords</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value grad-text">Real-time</div>
+            <div class="stat-label">Processing Speed</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Feed mockup illustration -->
+      <div class="hero-visual">
+        <div class="feed-mockup">
+          <div class="feed-topbar">
+            <div class="feed-dot r"></div>
+            <div class="feed-dot y"></div>
+            <div class="feed-dot g"></div>
+            <span style="font-size:0.72rem;color:var(--text-muted);margin-left:8px;">SocialParse Feed Analyzer</span>
+          </div>
+          <div class="feed-cards">
+            <div class="feed-card">
+              <div class="feed-avatar a">AK</div>
+              <div class="feed-content">
+                <div class="feed-user">@aryan_k</div>
+                <div class="feed-text">Loving the new <span class="feed-tag">#AI</span> features! This is absolutely amazing and wonderful 🚀</div>
+                <span class="sentiment-badge pos">✅ Positive · 92%</span>
+              </div>
+            </div>
+            <div class="feed-card">
+              <div class="feed-avatar b">SM</div>
+              <div class="feed-content">
+                <div class="feed-user">@sara_m</div>
+                <div class="feed-text">Terrible experience with <span class="feed-tag">#CustomerService</span> today. Really awful and frustrating 😡</div>
+                <span class="sentiment-badge neg">❌ Negative · 87%</span>
+              </div>
+            </div>
+            <div class="feed-card">
+              <div class="feed-avatar c">RJ</div>
+              <div class="feed-content">
+                <div class="feed-user">@raj_j</div>
+                <div class="feed-text">Just tried the new <span class="feed-tag">#MachineLearning</span> update. It's okay, nothing special yet.</div>
+                <span class="sentiment-badge neu">⚪ Neutral · 65%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================
+     ABOUT SECTION
+     ============================================================ -->
+<section id="about">
+  <div class="container">
+    <div class="about-grid">
+
+      <!-- Left: Pipeline steps -->
+      <div class="reveal">
+        <div class="section-label">How It Works</div>
+        <h2>The Parsing <span class="grad-text">Pipeline</span></h2>
+        <br>
+        <div class="pipeline">
+          <div class="pipe-step">
+            <div class="pipe-left">
+              <div class="pipe-num">1</div>
+              <div class="pipe-line"></div>
+            </div>
+            <div class="pipe-body">
+              <div class="pipe-title">Feed Ingestion</div>
+              <div class="pipe-desc">Raw social media posts are collected from APIs (Twitter, Instagram, Reddit) or uploaded as text batches.</div>
+            </div>
+          </div>
+          <div class="pipe-step">
+            <div class="pipe-left">
+              <div class="pipe-num">2</div>
+              <div class="pipe-line"></div>
+            </div>
+            <div class="pipe-body">
+              <div class="pipe-title">Tokenization & Cleaning</div>
+              <div class="pipe-desc">Text is tokenized into words. URLs, special chars, and stop words are filtered out for cleaner analysis.</div>
+            </div>
+          </div>
+          <div class="pipe-step">
+            <div class="pipe-left">
+              <div class="pipe-num">3</div>
+              <div class="pipe-line"></div>
+            </div>
+            <div class="pipe-body">
+              <div class="pipe-title">Entity Extraction</div>
+              <div class="pipe-desc">Hashtags (#tags), mentions (@users), URLs and keywords are identified using regex pattern matching.</div>
+            </div>
+          </div>
+          <div class="pipe-step">
+            <div class="pipe-left">
+              <div class="pipe-num">4</div>
+              <div class="pipe-line" style="background:transparent"></div>
+            </div>
+            <div class="pipe-body">
+              <div class="pipe-title">Sentiment Classification</div>
+              <div class="pipe-desc">Each post is scored Positive, Negative, or Neutral using lexicon-based keyword matching and scoring algorithms.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Use cases -->
+      <div class="reveal">
+        <div class="section-label">Real-World Impact</div>
+        <h2>Why <span class="grad-text">It Matters</span></h2>
+        <p style="color:var(--text-muted); margin: 16px 0 24px; font-size:0.95rem;">
+          Social media parsing powers billions of dollars of decisions across industries every day.
+        </p>
+        <div class="use-cases stagger">
+          <div class="use-case-item">
+            <div class="use-icon v"><i data-lucide="brain-circuit" width="20" height="20" style="color:#7c4dff"></i></div>
+            <div>
+              <div class="use-case-title">AI & NLP Research</div>
+              <div class="use-case-desc">Training datasets for sentiment models, chatbots, and language understanding systems.</div>
+            </div>
+          </div>
+          <div class="use-case-item">
+            <div class="use-icon c"><i data-lucide="trending-up" width="20" height="20" style="color:#00e5ff"></i></div>
+            <div>
+              <div class="use-case-title">Marketing Analytics</div>
+              <div class="use-case-desc">Track brand perception, campaign reach, and customer feedback in real-time.</div>
+            </div>
+          </div>
+          <div class="use-case-item">
+            <div class="use-icon p"><i data-lucide="shield-check" width="20" height="20" style="color:#00e676"></i></div>
+            <div>
+              <div class="use-case-title">Crisis Detection</div>
+              <div class="use-case-desc">Identify surges in negative sentiment to detect PR crises, fake news, or social unrest early.</div>
+            </div>
+          </div>
+          <div class="use-case-item">
+            <div class="use-icon a"><i data-lucide="bar-chart-2" width="20" height="20" style="color:#ffab40"></i></div>
+            <div>
+              <div class="use-case-title">Business Intelligence</div>
+              <div class="use-case-desc">Competitive analysis by monitoring mentions of rival brands and products across platforms.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================
+     DEMO / WORKING SECTION
+     ============================================================ -->
+<section id="demo">
+  <div class="container">
+    <div class="dash-header reveal">
+      <div class="section-label" style="justify-content:center">Live Demo</div>
+      <h2>Try the <span class="grad-text">Analyzer</span></h2>
+      <p>Paste any social media post and watch the parser extract insights instantly.</p>
+    </div>
+
+    <div class="demo-container">
+      <!-- Input Panel -->
+      <div class="panel reveal">
+        <div class="panel-title">
+          <div class="panel-icon"><i data-lucide="file-text" width="16" height="16" style="color:var(--accent-cyan)"></i></div>
+          Input Post
+        </div>
+
+        <!-- Textarea for user input -->
+        <textarea
+          id="postInput"
+          class="input-area"
+          placeholder="Paste a social media post here...
+
+Examples:
+• This product is absolutely amazing! I love it so much! #happy #bestever
+• Terrible customer service, very disappointed and frustrated. #bad
+• Just tried the new feature. It's okay I guess. #update #tech"
+        ></textarea>
+
+        <!-- Sample post buttons -->
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-secondary" style="padding:7px 14px;font-size:0.78rem;border-radius:100px;" onclick="loadSample('positive')">😊 Positive Sample</button>
+          <button class="btn-secondary" style="padding:7px 14px;font-size:0.78rem;border-radius:100px;" onclick="loadSample('negative')">😠 Negative Sample</button>
+          <button class="btn-secondary" style="padding:7px 14px;font-size:0.78rem;border-radius:100px;" onclick="loadSample('neutral')">😐 Neutral Sample</button>
+        </div>
+
+        <!-- Analyze button -->
+        <button class="analyze-btn" id="analyzeBtn" onclick="analyzePost()">
+          <i data-lucide="zap" width="18" height="18"></i>
+          Analyze Post
+        </button>
+      </div>
+
+      <!-- Output Panel -->
+      <div class="panel" id="outputPanel">
+        <div class="panel-title">
+          <div class="panel-icon" style="background:rgba(124,77,255,0.12)"><i data-lucide="bar-chart-2" width="16" height="16" style="color:var(--accent-violet)"></i></div>
+          Analysis Results
+        </div>
+
+        <!-- Placeholder shown before analysis -->
+        <div id="resultEmpty" class="result-empty">
+          <div style="font-size:2.5rem;margin-bottom:10px">🔍</div>
+          <p>Your analysis results will appear here.<br>Paste a post and click <strong>Analyze</strong>.</p>
+        </div>
+
+        <!-- Results (hidden until analysis runs) -->
+        <div id="resultContent" style="display:none">
+
+          <!-- Sentiment -->
+          <div class="result-section" id="sentimentSection">
+            <div class="result-heading">Sentiment Analysis</div>
+            <div class="sentiment-display" id="sentimentDisplay">
+              <div class="sentiment-icon" id="sentimentEmoji"></div>
+              <div>
+                <div class="sentiment-label" id="sentimentLabel"></div>
+                <div class="sentiment-score" id="sentimentScore"></div>
+              </div>
+            </div>
+            <div class="sentiment-bar-wrap" style="margin-top:12px">
+              <div class="sentiment-bar" id="sentimentBar" style="width:0%"></div>
+            </div>
+          </div>
+
+          <!-- Hashtags -->
+          <div class="result-section" id="hashtagSection">
+            <div class="result-heading">Extracted Hashtags</div>
+            <div class="tags-wrap" id="hashtagsOut"></div>
+          </div>
+
+          <!-- Keywords -->
+          <div class="result-section" id="keywordsSection">
+            <div class="result-heading">Highlighted Keywords</div>
+            <div class="keywords-text" id="keywordsOut"></div>
+          </div>
+
+          <!-- Token count -->
+          <div class="result-section" id="statsSection">
+            <div class="result-heading">Post Statistics</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px" id="postStats"></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================
+     DASHBOARD SECTION
+     ============================================================ -->
+<section id="dashboard">
+  <div class="container">
+    <div class="dash-header reveal">
+      <div class="section-label" style="justify-content:center">Analytics</div>
+      <h2>Feed <span class="grad-text">Dashboard</span></h2>
+      <p>Sample analytics from a simulated social media dataset of 500 posts.</p>
+    </div>
+
+    <!-- Metric summary cards -->
+    <div class="metric-cards stagger">
+      <div class="metric-card">
+        <div class="metric-top">
+          <div class="metric-icon" style="background:rgba(0,229,255,0.12)"><i data-lucide="file-text" width="18" height="18" style="color:var(--accent-cyan)"></i></div>
+          <span class="metric-change up">↑ 12%</span>
+        </div>
+        <div class="metric-val">500</div>
+        <div class="metric-name">Total Posts Analyzed</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-top">
+          <div class="metric-icon" style="background:rgba(0,230,118,0.12)"><i data-lucide="smile" width="18" height="18" style="color:var(--accent-green)"></i></div>
+          <span class="metric-change up">↑ 8%</span>
+        </div>
+        <div class="metric-val">218</div>
+        <div class="metric-name">Positive Posts</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-top">
+          <div class="metric-icon" style="background:rgba(255,64,129,0.12)"><i data-lucide="frown" width="18" height="18" style="color:var(--accent-pink)"></i></div>
+          <span class="metric-change down">↓ 3%</span>
+        </div>
+        <div class="metric-val">162</div>
+        <div class="metric-name">Negative Posts</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-top">
+          <div class="metric-icon" style="background:rgba(255,171,64,0.12)"><i data-lucide="minus-circle" width="18" height="18" style="color:var(--accent-amber)"></i></div>
+          <span class="metric-change up">↑ 2%</span>
+        </div>
+        <div class="metric-val">120</div>
+        <div class="metric-name">Neutral Posts</div>
+      </div>
+    </div>
+
+    <!-- Charts row 1 -->
+    <div class="charts-grid reveal">
+      <div class="chart-card">
+        <div class="chart-title">Sentiment Distribution</div>
+        <div class="chart-sub">Overall breakdown across 500 posts</div>
+        <canvas id="sentimentDoughnut" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Posts Over Time</div>
+        <div class="chart-sub">Volume trend over the last 7 days</div>
+        <canvas id="timelineBar" height="220"></canvas>
+      </div>
+    </div>
+
+    <!-- Charts row 2 -->
+    <div class="charts-grid-3 reveal">
+      <div class="chart-card">
+        <div class="chart-title">Top Hashtags</div>
+        <div class="chart-sub">Most frequent tags detected</div>
+        <canvas id="hashtagBar" height="200"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Platform Sources</div>
+        <div class="chart-sub">Breakdown by social platform</div>
+        <canvas id="platformPie" height="200"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Sentiment by Platform</div>
+        <div class="chart-sub">Positivity rate per source</div>
+        <canvas id="platformSentiment" height="200"></canvas>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ============================================================
+     CONTACT / FOOTER
+     ============================================================ -->
+<footer id="contact">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <h3>SocialParse</h3>
+        <p>A college project demonstrating the fundamentals of social media feed parsing, natural language processing, and data analytics — built entirely with HTML, CSS, and JavaScript.</p>
+        <br>
+        <div style="display:flex;gap:10px">
+          <span class="footer-tag">HTML5</span>
+          <span class="footer-tag">CSS3</span>
+          <span class="footer-tag">JavaScript</span>
+          <span class="footer-tag">Chart.js</span>
+        </div>
+      </div>
+
+      <div class="footer-col">
+        <h4>Project Info</h4>
+        <ul>
+          <li>📚 Subject: Web Technology</li>
+          <li>📅 Year: 2024–25</li>
+          <li>🏛️ Department: Computer Science</li>
+          <li>📋 Type: Mini Project</li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h4>Key Features</h4>
+        <ul>
+          <li>✅ Sentiment Analysis</li>
+          <li>✅ Hashtag Extraction</li>
+          <li>✅ Keyword Highlighting</li>
+          <li>✅ Interactive Dashboard</li>
+          <li>✅ Responsive Design</li>
+        </ul>
+      </div>
+    </div>
+
+    <hr class="footer-divider"/>
+
+    <div class="footer-bottom">
+      <div>
+        <p style="font-size:1rem;font-weight:600;color:var(--text-primary);margin-bottom:6px">👨‍🎓 Student Project</p>
+        <p>Submitted to: <strong style="color:var(--text-primary)">Department of Computer Science &amp; Engineering (AIML)</strong></p>
+        <p style="margin-top:4px">College: <strong style="color:var(--text-primary)">S.B.JAIN</strong> · Guide: <strong style="color:var(--text-primary)">Prof. Name Here</strong></p>
+      </div>
+      <div style="text-align:right">
+        <p>Built with <span style="color:var(--accent-pink)">♥</span> using pure web technologies</p>
+        <p style="margin-top:4px">© 2025 SocialParse · All rights reserved</p>
+      </div>
+    </div>
+  </div>
+</footer>
+
+
+<!-- ============================================================
+     JAVASCRIPT
+     ============================================================ -->
+<script>
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Wait for ALL scripts (including Lucide) to finish loading
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+window.addEventListener('load', function () {
+
+// 1. INIT LUCIDE ICONS
+lucide.createIcons();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 2. HAMBURGER / MOBILE NAV
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const hamburger = document.getElementById('hamburger');
+const navLinks  = document.getElementById('navLinks');
+
+hamburger.addEventListener('click', () => {
+  navLinks.classList.toggle('open');
+});
+// Close nav when a link is clicked
+navLinks.querySelectorAll('a').forEach(a => {
+  a.addEventListener('click', () => navLinks.classList.remove('open'));
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 3. SCROLL REVEAL (Intersection Observer)
+//    Adds 'visible' class to .reveal and .stagger elements
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const revealObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.15 });
+
+document.querySelectorAll('.reveal, .stagger').forEach(el => revealObserver.observe(el));
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 4. SENTIMENT KEYWORD DICTIONARY
+//    Each word has a weight: positive > 0, negative < 0
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const sentimentLexicon = {
+  // Strongly positive (+2)
+  amazing: 2, excellent: 2, fantastic: 2, wonderful: 2, outstanding: 2,
+  brilliant: 2, superb: 2, phenomenal: 2, extraordinary: 2, exceptional: 2,
+  // Mildly positive (+1)
+  good: 1, great: 1, nice: 1, happy: 1, love: 1, like: 1, enjoy: 1,
+  positive: 1, perfect: 1, beautiful: 1, awesome: 1, best: 1, cool: 1,
+  helpful: 1, impressive: 1, exciting: 1, fun: 1, pleased: 1, glad: 1,
+  thankful: 1, grateful: 1, satisfied: 1, delighted: 1, cheerful: 1,
+  // Strongly negative (-2)
+  terrible: -2, horrible: -2, awful: -2, dreadful: -2, atrocious: -2,
+  disgusting: -2, abysmal: -2, worst: -2,
+  // Mildly negative (-1)
+  bad: -1, hate: -1, dislike: -1, sad: -1, angry: -1, frustrated: -1,
+  disappointed: -1, poor: -1, negative: -1, ugly: -1, boring: -1,
+  slow: -1, broken: -1, useless: -1, annoying: -1, awful: -2,
+  fail: -1, failed: -1, problem: -1, issue: -1, wrong: -1, error: -1,
+};
+
+// Important keywords to always highlight (independent of sentiment)
+const importantKeywords = [
+  'product', 'service', 'feature', 'app', 'update', 'user', 'experience',
+  'performance', 'quality', 'price', 'support', 'team', 'company', 'brand',
+  'review', 'feedback', 'launch', 'release', 'version', 'design',
+];
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 5. SAMPLE POST LOADER
+// Exposed on window so inline onclick= attributes can reach them
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const samplePosts = {
+  positive: "Just tried the new product update and it's absolutely amazing! The design is beautiful and the performance is outstanding. Highly recommended for everyone! 😍🚀 #awesome #bestever #happy #love #MustTry #ProductLaunch",
+  negative: "Terrible experience with customer support today. The service was awful and very slow. The app keeps breaking and the team seems completely clueless. #disappointed #fail #badservice #frustrated #WorstExperience",
+  neutral:  "Checked out the new version of the app. It has a few interesting features and some performance updates. Nothing groundbreaking but it does the job. #update #tech #review #AppUpdate",
+};
+
+function loadSample(type) {
+  document.getElementById('postInput').value = samplePosts[type];
+}
+window.loadSample = loadSample;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 6. MAIN ANALYSIS FUNCTION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function analyzePost() {
+  const text = document.getElementById('postInput').value.trim();
+
+  // Guard: empty input
+  if (!text) {
+    alert('⚠️ Please enter a social media post to analyze!');
+    return;
+  }
+
+  // Show loading spinner on button
+  const btn = document.getElementById('analyzeBtn');
+  btn.innerHTML = '<div class="spinner"></div> Analyzing...';
+  btn.disabled = true;
+
+  // Simulate processing delay for realism
+  setTimeout(() => {
+    const result = runAnalysis(text);
+    renderResults(result, text);
+
+    // Restore button
+    btn.innerHTML = '<i data-lucide="zap" width="18" height="18"></i> Analyze Post';
+    btn.disabled = false;
+    lucide.createIcons(); // Re-init icons after DOM change
+  }, 900);
+}
+window.analyzePost = analyzePost;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 7. ANALYSIS LOGIC (pure JavaScript, no APIs)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function runAnalysis(text) {
+  // --- a) Extract hashtags using regex ---
+  const hashtags = [...new Set(text.match(/#\w+/g) || [])];
+
+  // --- b) Tokenize (split into words, lowercase, strip punctuation) ---
+  const words = text.toLowerCase().replace(/[^a-z0-9\s#@]/g, '').split(/\s+/).filter(Boolean);
+
+  // --- c) Sentiment scoring ---
+  let score = 0;
+  let matchedPositive = [];
+  let matchedNegative = [];
+
+  words.forEach(word => {
+    const clean = word.replace(/[^a-z]/g, ''); // remove # @ etc for lookup
+    if (sentimentLexicon[clean] !== undefined) {
+      score += sentimentLexicon[clean];
+      if (sentimentLexicon[clean] > 0) matchedPositive.push(clean);
+      else matchedNegative.push(clean);
+    }
+  });
+
+  // --- d) Normalize score to a 0–100 confidence percentage ---
+  const maxPossible = words.length * 2; // max if every word scores +2
+  const clampedScore = Math.max(-maxPossible, Math.min(maxPossible, score));
+  const normalised = ((clampedScore + maxPossible) / (2 * maxPossible)) * 100;
+  const confidence = Math.round(Math.max(40, Math.min(98, normalised)));
+
+  // --- e) Classify sentiment label ---
+  let sentiment, emoji, color;
+  if (score > 1) {
+    sentiment = 'Positive'; emoji = '😊'; color = 'var(--accent-green)';
+  } else if (score < -1) {
+    sentiment = 'Negative'; emoji = '😠'; color = 'var(--accent-pink)';
+  } else {
+    sentiment = 'Neutral';  emoji = '😐'; color = 'var(--accent-amber)';
+  }
+
+  // --- f) Extract important keywords from post ---
+  const foundKeywords = importantKeywords.filter(kw =>
+    text.toLowerCase().includes(kw)
+  );
+
+  // --- g) Word & character counts ---
+  const wordCount = words.length;
+  const charCount = text.length;
+  const uniqueWords = new Set(words.map(w => w.replace(/[^a-z]/g,''))).size;
+
+  return {
+    sentiment, emoji, color, score, confidence,
+    hashtags, matchedPositive, matchedNegative,
+    foundKeywords, wordCount, charCount, uniqueWords,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 8. RENDER RESULTS TO DOM
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function renderResults(res, originalText) {
+  // Hide placeholder, show results
+  document.getElementById('resultEmpty').style.display   = 'none';
+  document.getElementById('resultContent').style.display = 'block';
+
+  // — Sentiment display —
+  document.getElementById('sentimentEmoji').textContent = res.emoji;
+  document.getElementById('sentimentLabel').textContent  = res.sentiment;
+  document.getElementById('sentimentLabel').style.color  = res.color;
+  document.getElementById('sentimentScore').textContent  = `Confidence: ${res.confidence}% · Score: ${res.score > 0 ? '+' : ''}${res.score}`;
+
+  // Animated progress bar
+  const bar = document.getElementById('sentimentBar');
+  bar.style.background = res.color;
+  setTimeout(() => { bar.style.width = res.confidence + '%'; }, 50);
+
+  // — Hashtags —
+  const hashEl = document.getElementById('hashtagsOut');
+  if (res.hashtags.length > 0) {
+    hashEl.innerHTML = res.hashtags.map((h, i) =>
+      `<span class="tag-chip" style="animation-delay:${i * 0.07}s">${h}</span>`
+    ).join('');
+  } else {
+    hashEl.innerHTML = '<span style="color:var(--text-muted);font-size:0.85rem">No hashtags found in this post.</span>';
+  }
+
+  // — Keyword highlighting —
+  // We highlight: positive words (green), negative words (red), important keywords (purple)
+  let highlighted = originalText;
+
+  // Build a regex for all keyword types
+  const allKeywords = [
+    ...res.matchedPositive.map(w => ({ word: w, type: 'pos' })),
+    ...res.matchedNegative.map(w => ({ word: w, type: 'neg' })),
+    ...res.foundKeywords.map(w  => ({ word: w, type: 'kw'  })),
+  ];
+
+  // Sort by length desc to avoid partial replacements
+  allKeywords.sort((a, b) => b.word.length - a.word.length);
+
+  // Replace words with highlighted spans
+  allKeywords.forEach(({ word, type }) => {
+    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+    highlighted = highlighted.replace(regex, `<mark class="${type}-kw">$1</mark>`);
+  });
+
+  // Also highlight hashtags in the text
+  highlighted = highlighted.replace(/#(\w+)/g, '<mark class="kw">#$1</mark>');
+
+  document.getElementById('keywordsOut').innerHTML = highlighted || '<em>No text to display.</em>';
+
+  // — Post statistics —
+  document.getElementById('postStats').innerHTML = `
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center">
+      <div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:var(--accent-cyan)">${res.wordCount}</div>
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Total Words</div>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center">
+      <div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:var(--accent-violet)">${res.charCount}</div>
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Characters</div>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center">
+      <div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:var(--accent-green)">${res.hashtags.length}</div>
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Hashtags</div>
+    </div>
+  `;
+
+  // Re-init icons inside the panel
+  lucide.createIcons();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 9. CHART.JS DASHBOARD CHARTS
+//    All data is simulated / hardcoded for demo purposes
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Shared Chart.js defaults (dark theme)
+Chart.defaults.color = '#7b8caa';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.07)';
+Chart.defaults.font.family = "'DM Sans', sans-serif";
+
+// — Chart 1: Sentiment Doughnut —
+new Chart(document.getElementById('sentimentDoughnut'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Positive', 'Negative', 'Neutral'],
+    datasets: [{
+      data: [218, 162, 120],
+      backgroundColor: ['rgba(0,230,118,0.8)', 'rgba(255,64,129,0.8)', 'rgba(255,171,64,0.8)'],
+      borderColor:     ['#00e676', '#ff4081', '#ffab40'],
+      borderWidth: 2, hoverOffset: 8,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: true,
+    plugins: {
+      legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true } }
+    },
+    cutout: '62%',
+  }
+});
+
+// — Chart 2: Posts Over Time (Bar) —
+new Chart(document.getElementById('timelineBar'), {
+  type: 'bar',
+  data: {
+    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    datasets: [
+      { label: 'Positive', data: [32, 28, 40, 35, 50, 45, 38], backgroundColor: 'rgba(0,230,118,0.7)', borderRadius: 6 },
+      { label: 'Negative', data: [20, 25, 18, 30, 22, 15, 32], backgroundColor: 'rgba(255,64,129,0.7)', borderRadius: 6 },
+      { label: 'Neutral',  data: [15, 18, 20, 14, 22, 17, 14], backgroundColor: 'rgba(255,171,64,0.7)', borderRadius: 6 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: true,
+    plugins: { legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true } } },
+    scales: {
+      x: { stacked: true, grid: { color: 'rgba(255,255,255,0.04)' } },
+      y: { stacked: true, grid: { color: 'rgba(255,255,255,0.04)' }, beginAtZero: true },
+    }
+  }
+});
+
+// — Chart 3: Top Hashtags (Horizontal Bar) —
+new Chart(document.getElementById('hashtagBar'), {
+  type: 'bar',
+  data: {
+    labels: ['#AI', '#tech', '#happy', '#love', '#fail', '#update'],
+    datasets: [{
+      label: 'Count',
+      data: [95, 82, 74, 68, 55, 48],
+      backgroundColor: [
+        'rgba(0,229,255,0.7)', 'rgba(124,77,255,0.7)', 'rgba(0,230,118,0.7)',
+        'rgba(255,64,129,0.7)', 'rgba(255,171,64,0.7)', 'rgba(0,229,255,0.5)',
+      ],
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: 'rgba(255,255,255,0.04)' }, beginAtZero: true },
+      y: { grid: { display: false } },
+    }
+  }
+});
+
+// — Chart 4: Platform Sources (Pie) —
+new Chart(document.getElementById('platformPie'), {
+  type: 'pie',
+  data: {
+    labels: ['Twitter/X', 'Instagram', 'Reddit', 'LinkedIn'],
+    datasets: [{
+      data: [210, 145, 95, 50],
+      backgroundColor: ['rgba(0,229,255,0.8)','rgba(255,64,129,0.8)','rgba(255,171,64,0.8)','rgba(0,230,118,0.8)'],
+      borderColor: ['#00e5ff','#ff4081','#ffab40','#00e676'],
+      borderWidth: 2, hoverOffset: 8,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'bottom', labels: { padding: 10, usePointStyle: true, font: { size: 11 } } } }
+  }
+});
+
+// — Chart 5: Sentiment by Platform (Grouped Bar) —
+new Chart(document.getElementById('platformSentiment'), {
+  type: 'bar',
+  data: {
+    labels: ['Twitter', 'Instagram', 'Reddit', 'LinkedIn'],
+    datasets: [
+      { label: 'Positive %', data: [42, 58, 35, 62], backgroundColor: 'rgba(0,230,118,0.7)', borderRadius: 5 },
+      { label: 'Negative %', data: [30, 20, 40, 18], backgroundColor: 'rgba(255,64,129,0.7)', borderRadius: 5 },
+      { label: 'Neutral %',  data: [28, 22, 25, 20], backgroundColor: 'rgba(255,171,64,0.7)', borderRadius: 5 },
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'bottom', labels: { padding: 10, usePointStyle: true, font: { size: 10 } } } },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: 'rgba(255,255,255,0.04)' }, beginAtZero: true, max: 100,
+           ticks: { callback: v => v + '%' } },
+    }
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 10. KEYBOARD SHORTCUT: Ctrl+Enter to analyze
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+document.getElementById('postInput').addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') analyzePost();
+});
+
+}); // end window load
+</script>
+
+</body>
+</html>
